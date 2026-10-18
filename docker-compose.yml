@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Inside Docker the app reaches the vector DB by its service name.
+      VECTOR_DATABASE_URL: postgresql+psycopg://${VECTOR_DB_USER}:${VECTOR_DB_PASSWORD}@vectordb:5432/${VECTOR_DB_NAME}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      # Inside this container "localhost" is the container itself, so DATABASE_URL must point at
+      # host.docker.internal to reach the compensation DB on your machine (works on Linux too).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      vectordb:
+        condition: service_healthy
+
+  # Our own Postgres with pgvector, separate from the compensation database.
+  vectordb:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${VECTOR_DB_USER}
+      POSTGRES_PASSWORD: ${VECTOR_DB_PASSWORD}
+      POSTGRES_DB: ${VECTOR_DB_NAME}
+    ports:
+      - "5433:5432"  # exposed on 5433 so it doesn't clash with a local Postgres
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${VECTOR_DB_USER} -d ${VECTOR_DB_NAME}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgvector_data:
